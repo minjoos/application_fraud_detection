@@ -1,97 +1,79 @@
-# Credit Card & Application Fraud Detection using LightGBM
+# Application Fraud Detection (LightGBM)
 
-This repository presents a real-world inspired fraud detection project designed to identify fraudulent applications and transactions using advanced feature engineering and machine learning. Built using 1M+ synthetic records, this project was completed as part of USC’s MSBA program.
+Ranking 1M credit-card and cell-phone applications by fraud risk so a limited review team sees the riskiest ones first.
+Academic project · USC Marshall, DSO 562 Fraud Analytics · Fall 2024 · individual submission
 
-## 🧠 Problem Statement
-
-Detect fraudulent credit card applications using complex patterns in applicant and transaction behavior. The key challenge: maximize fraud detection while minimizing false positives and costs.
-
----
-
-## 📊 Dataset Overview
-
-- **Size**: ~1,000,000 synthetic credit card application records
-- **Fields**: Personal info, SSNs, phone numbers, employer data, financial indicators, labels
-- **Challenge**: High imbalance + synthetic placeholders (e.g., SSN = 999999999)
+**Result:** the final LightGBM model captured **61.2% of all fraud within the top 3% highest-risk applications** on out-of-time data (FDR@3%).
 
 ---
 
-## ⚙️ Methodology
+## Problem
 
-### 1. Data Cleaning
-- Replaced placeholder values (e.g., 999999999 SSNs, missing phone prefixes)
-- Removed duplicates, filtered invalid formats
-- Validated data types across all fields
+Identity fraud at account opening often reuses or recombines pieces of real identities (SSN, phone, address, name, DOB).
+The goal was a score that ranks applications so that reviewing a small top slice catches as much fraud as possible.
 
-### 2. Feature Engineering
-- Engineered **1,500+ features**, including:
-  - Entity combinations (name + address + DOB, etc.)
-  - Velocity features (e.g., applications per user/time window)
-  - Recency and frequency metrics (e.g., phone # reuse patterns)
-  - Uniqueness counts and fraud history flags
+## Data
 
-### 3. Feature Selection
-- Filter methods (correlation thresholding, chi-squared)
-- Wrapper methods (LightGBM-based importance + SHAP)
-- Reduced to **100 final features**
+- 1,000,000 synthetic applications (course-provided; **not redistributed in this repo**)
+- Fraud rate ≈ 1.44% (highly imbalanced)
+- Last two months (~166K applications) held out as an **out-of-time (OOT)** set
 
-### 4. Model Building & Evaluation
-- Models tested: Logistic Regression, Decision Tree, Random Forest, MLP, LightGBM
-- Final model: **LightGBM**
-  - ✅ Best FDR@3% (Fraud Detection Rate at top 3%)
-  - ✅ Stable across train/test/OOT sets
-- Evaluation:
-  - Out-of-Time (OOT) validation
-  - Precision, recall, AUC, FDR@3%, cost savings
+## Approach
 
----
+**1. Data cleaning: removing false identity links**
+Placeholder values such as SSN `999999999` (16,935 records), dummy phone numbers, and default addresses/DOBs would make unrelated applicants look like the same person and poison every linkage feature.
+I replaced each placeholder with a record-unique value so it can never create a link.
 
-## 📈 Results
+**2. Feature engineering: 1,500+ candidate variables**
+- Entity combinations (e.g., name + DOB, address + phone)
+- Days-since-last-seen for each identity element and combination
+- Velocity: application counts per entity over 0/1/3/7/14/30-day windows
+- Relative velocity: short-window vs long-window ratios
+- Unique counts: how many distinct values of one element are linked to another (e.g., distinct SSNs per address)
+- Max-count and age indicators
 
-| Model           | FDR@3% (OOT) | Comments                   |
-|------------------|--------------|-----------------------------|
-| Logistic         | 0.472        | Baseline                   |
-| Decision Tree    | 0.503        | Overfit-prone              |
-| Random Forest    | 0.538        | Slow, marginally better    |
-| MLP              | 0.529        | OK performance             |
-| **LightGBM**     | **0.612**    | ✅ Final model              |
+**3. Feature selection**
+KS-based filter → top 100 candidates → LightGBM forward-selection wrapper (20 ranked variables) → final model uses the top 10.
+The strongest signals were address-level velocity and recency (e.g., max applications per address in 30 days, days since the address was last seen).
 
-- 💰 **Estimated cost savings**: $18B/year (based on top 3% flagged strategy)
-- 🔍 Significant patterns found in:
-  - SSN reuse
-  - Phone # patterns
-  - Employer anomalies
+**4. Model comparison (OOT FDR@3%)**
 
----
+| Model | OOT FDR@3% |
+|---|---|
+| Logistic Regression | 0.589 |
+| Decision Tree | 0.593 |
+| Random Forest | 0.609 |
+| Neural Network (MLP) | 0.564 |
+| **LightGBM** (n_estimators 80, max_depth 3, lr 0.07, num_leaves 25) | **0.612** |
 
-## 🛠️ Tech Stack
+LightGBM train / test / OOT: 0.585 / 0.576 / 0.612.
 
-- Python (Pandas, NumPy, Scikit-learn, LightGBM)
-- Jupyter Notebook
-- Matplotlib / Seaborn
-- Git / GitHub
+**5. Operating cutoff**
+A cost-based curve under course-provided assumptions (cost of a missed fraud vs. cost of a false positive) peaked at a 3% review cutoff.
 
----
+## Metric note
 
-## 📁 Key Files
+FDR@3% here means **Fraud Detection Rate**: the share of all fraud that falls inside the top 3% of scores.
+It is a recall-at-capacity metric, not precision and not accuracy.
 
-- `notebooks/01_applications_explore_clean.ipynb` – Cleaning & validation
-- `notebooks/02_feature_engineering_variables.ipynb` – 1,500+ features
-- `notebooks/03_feature_selection_lightgbm.ipynb` – SHAP & wrapper methods
-- `notebooks/04_model_comparison_lightgbm_vs_baselines.ipynb` – Final model
-- `report/final_report.pdf` – Executive summary & impact analysis
+## Limitations
 
----
+- Synthetic data; no production deployment or real loss savings are claimed.
+- The OOT set was also consulted during model selection, so 0.612 is not a fully untouched holdout estimate.
+- Any dollar figures from the course cost assumptions are simulations, not business results.
 
-## 💡 Key Takeaways
+## Repository
 
-- Importance of preprocessing and deep feature engineering in fraud modeling
-- How to balance cost-efficiency with detection coverage
-- Techniques for reducing noise in highly imbalanced datasets
-- Real-world lessons: model interpretability & risk coverage
+```
+notebooks/
+  01_applications_explore_clean.ipynb       # data quality review, placeholder handling
+  02_feature_engineering_variables.ipynb    # candidate variable creation
+  03_feature_selection_lightgbm.ipynb       # KS filter + forward wrapper experiments
+  04_model_comparison_lightgbm_vs_baselines.ipynb  # model tuning, OOT evaluation, cutoff
+report/final_report.pdf
+```
 
----
+Notebooks build on course-provided starter code; data-cleaning decisions, feature design, selection experiments, tuning, and the report are my own work.
+The dataset is not included. Notebooks expect it at the path set in the first cell.
 
-## 📬 Contact
-
-Feel free to reach out if you'd like to discuss this project or see additional notebooks or deployment code.
+**Stack:** Python · pandas · NumPy · scikit-learn · LightGBM · Matplotlib
